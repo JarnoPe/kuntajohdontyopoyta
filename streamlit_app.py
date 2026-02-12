@@ -2,6 +2,7 @@ import importlib
 
 import streamlit as st
 
+
 def _plotly_available() -> bool:
     return importlib.util.find_spec("plotly") is not None
 
@@ -108,13 +109,20 @@ def main() -> None:
 
     def _latest(df):
         if df.empty:
-            return {}
-        current = df[df["year"] == selected_year]
-        return {row["municipality"]: row["value"] for _, row in current.iterrows()}
+            return {}, None
 
-    emp_map = _latest(emp_df)
-    unemp_map = _latest(unemp_df)
-    dep_map = _latest(dep_df)
+        available_years = sorted(df["year"].dropna().astype(int).unique().tolist())
+        if not available_years:
+            return {}, None
+
+        year_for_metric = max((year for year in available_years if year <= selected_year), default=available_years[-1])
+        current = df[df["year"] == year_for_metric]
+        value_map = {row["municipality"]: row["value"] for _, row in current.iterrows()}
+        return value_map, year_for_metric
+
+    emp_map, emp_year = _latest(emp_df)
+    unemp_map, unemp_year = _latest(unemp_df)
+    dep_map, dep_year = _latest(dep_df)
 
     rows = []
     for muni in selected_muni:
@@ -129,6 +137,19 @@ def main() -> None:
         )
 
     st.dataframe(rows, use_container_width=True)
+
+    year_notes = []
+    if emp_year and emp_year != selected_year:
+        year_notes.append(f"Työllisyysaste: {emp_year}")
+    if unemp_year and unemp_year != selected_year:
+        year_notes.append(f"Työttömyysaste: {unemp_year}")
+    if dep_year and dep_year != selected_year:
+        year_notes.append(f"Huoltosuhde: {dep_year}")
+    if year_notes:
+        st.caption(
+            "Kaikki tunnusluvut eivät ole saatavilla valitulle vuodelle. "
+            "Käytössä viimeisin saatavilla oleva vuosi — " + ", ".join(year_notes)
+        )
 
     st.subheader("Väestövertailu")
     bar_df = filtered_pop.sort_values("value", ascending=False)
