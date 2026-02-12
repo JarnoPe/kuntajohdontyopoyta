@@ -1,6 +1,52 @@
+import importlib
+
 import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
+
+def _plotly_available() -> bool:
+    return importlib.util.find_spec("plotly") is not None
+
+
+def _render_line_chart(trend):
+    if _plotly_available():
+        import plotly.express as px
+
+        fig_line = px.line(
+            trend,
+            x="year",
+            y="value",
+            color="municipality",
+            color_discrete_map=MUNICIPALITY_COLORS,
+            markers=True,
+        )
+        fig_line.update_layout(legend_title_text="Kunta", yaxis_title="Asukkaat", xaxis_title="Vuosi")
+        st.plotly_chart(fig_line, use_container_width=True)
+    else:
+        pivot = trend.pivot(index="year", columns="municipality", values="value")
+        st.line_chart(pivot, use_container_width=True)
+        st.info("Plotly-pakettia ei löytynyt ympäristöstä. Näytetään varakaavio Streamlitin omalla kaaviolla.")
+
+
+def _render_bar_chart(bar_df):
+    if _plotly_available():
+        import plotly.graph_objects as go
+
+        fig_bar = go.Figure()
+        for _, row in bar_df.iterrows():
+            fig_bar.add_trace(
+                go.Bar(
+                    x=[row["municipality"]],
+                    y=[row["value"]],
+                    marker_color=MUNICIPALITY_COLORS.get(row["municipality"], "#3b82f6"),
+                    name=row["municipality"],
+                    showlegend=False,
+                )
+            )
+        fig_bar.update_layout(xaxis_title="Kunta", yaxis_title="Asukkaat")
+        st.plotly_chart(fig_bar, use_container_width=True)
+    else:
+        fallback = bar_df.set_index("municipality")["value"]
+        st.bar_chart(fallback, use_container_width=True)
+
 
 from statfin_service import (
     MUNICIPALITIES,
@@ -56,16 +102,7 @@ def main() -> None:
 
     st.subheader("Väestökehitys")
     trend = pop_df[pop_df["municipality"].isin(selected_muni)]
-    fig_line = px.line(
-        trend,
-        x="year",
-        y="value",
-        color="municipality",
-        color_discrete_map=MUNICIPALITY_COLORS,
-        markers=True,
-    )
-    fig_line.update_layout(legend_title_text="Kunta", yaxis_title="Asukkaat", xaxis_title="Vuosi")
-    st.plotly_chart(fig_line, use_container_width=True)
+    _render_line_chart(trend)
 
     st.subheader(f"Keskeiset tunnusluvut ({selected_year})")
 
@@ -95,19 +132,7 @@ def main() -> None:
 
     st.subheader("Väestövertailu")
     bar_df = filtered_pop.sort_values("value", ascending=False)
-    fig_bar = go.Figure()
-    for _, row in bar_df.iterrows():
-        fig_bar.add_trace(
-            go.Bar(
-                x=[row["municipality"]],
-                y=[row["value"]],
-                marker_color=MUNICIPALITY_COLORS.get(row["municipality"], "#3b82f6"),
-                name=row["municipality"],
-                showlegend=False,
-            )
-        )
-    fig_bar.update_layout(xaxis_title="Kunta", yaxis_title="Asukkaat")
-    st.plotly_chart(fig_bar, use_container_width=True)
+    _render_bar_chart(bar_df)
 
 
 if __name__ == "__main__":
