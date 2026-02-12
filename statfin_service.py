@@ -124,6 +124,41 @@ def _extract_series(data: dict[str, Any], area_dim: str, year_dim: str, config: 
     return rows
 
 
+
+def _extract_direct_series(data: dict[str, Any], area_dim: str, year_dim: str):
+    dim_ids: list[str] = data["id"]
+    sizes: list[int] = data["size"]
+    values: list[float | None] = data["value"]
+
+    area_keys = list(data["dimension"][area_dim]["category"]["index"].keys())
+    area_labels = data["dimension"][area_dim]["category"]["label"]
+    year_keys = list(data["dimension"][year_dim]["category"]["index"].keys())
+
+    keep_dims = {area_dim, year_dim}
+
+    rows: list[dict[str, Any]] = []
+    for i, value in enumerate(values):
+        if value is None:
+            continue
+
+        coords = _get_coords(i, sizes)
+        dim_map = {dim: coords[idx] for idx, dim in enumerate(dim_ids)}
+
+        # Keep only the aggregate/default slice for dimensions we do not explicitly query.
+        if any(dim_map[dim] != 0 for dim in dim_ids if dim not in keep_dims):
+            continue
+
+        area_code = area_keys[dim_map[area_dim]]
+        municipality = area_labels[area_code]
+        if municipality not in MUNICIPALITIES:
+            continue
+
+        year = int(year_keys[dim_map[year_dim]])
+        rows.append({"year": year, "municipality": municipality, "value": float(value)})
+
+    return rows
+
+
 def _rows_to_frame(rows):
     import pandas as pd
 
@@ -157,12 +192,21 @@ def fetch_employment_data():
 
 
 def fetch_employed_18_64_data():
-    return _fetch_key_figures_series(
-        SeriesConfig(
-            label_keyword="työlliset 18 64",
-            preferred_labels=("Työlliset, 18 - 64-vuotiaat", "Työlliset 18-64-vuotiaat"),
-        )
-    )
+    url = "https://statfin.stat.fi/PxWeb/api/v1/fi/StatFin/tyokay/statfin_tyokay_pxt_115x.px"
+    query = {
+        "query": [
+            {"code": "Alue", "selection": {"filter": "item", "values": list(MUNICIPALITY_CODES.keys())}},
+            {"code": "Vuosi", "selection": {"filter": "item", "values": ["2020", "2021", "2022", "2023", "2024"]}},
+        ],
+        "response": {"format": "json-stat2"},
+    }
+
+    data = _post_jsonstat(url, query)
+    if not data:
+        return _rows_to_frame([])
+
+    rows = _extract_direct_series(data, "Alue", "Vuosi")
+    return _rows_to_frame(rows)
 
 
 def fetch_unemployment_data():
@@ -204,4 +248,3 @@ def _fetch_key_figures_series(config: SeriesConfig):
 
     rows = _extract_series(data, "Alue", "Vuosi", config)
     return _rows_to_frame(rows)
-
