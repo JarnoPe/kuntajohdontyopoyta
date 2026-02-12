@@ -153,19 +153,27 @@ def fetch_population_data():
 
 
 def fetch_employment_data():
+    return fetch_employed_18_64_data()
+
+
+def fetch_employed_18_64_data():
     return _fetch_key_figures_series(
         SeriesConfig(
-            label_keyword="työllisyysaste",
-            preferred_labels=("Työllisyysaste, %",),
+            label_keyword="työlliset 18 64",
+            preferred_labels=("Työlliset, 18 - 64-vuotiaat", "Työlliset 18-64-vuotiaat"),
         )
     )
 
 
 def fetch_unemployment_data():
+    return fetch_unemployed_18_64_data()
+
+
+def fetch_unemployed_18_64_data():
     return _fetch_key_figures_series(
         SeriesConfig(
-            label_keyword="työttömyysaste",
-            preferred_labels=("Työttömyysaste, %",),
+            label_keyword="työttömät 18 64",
+            preferred_labels=("Työttömät, 18 - 64-vuotiaat", "Työttömät 18-64-vuotiaat"),
         )
     )
 
@@ -196,3 +204,4 @@ def _fetch_key_figures_series(config: SeriesConfig):
 
     rows = _extract_series(data, "Alue", "Vuosi", config)
     return _rows_to_frame(rows)
+
