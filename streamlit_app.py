@@ -52,10 +52,10 @@ def _render_bar_chart(bar_df):
 from statfin_service import (
     MUNICIPALITIES,
     MUNICIPALITY_COLORS,
-    fetch_population_data,
-    fetch_employment_data,
-    fetch_unemployment_data,
     fetch_dependency_ratio_data,
+    fetch_employed_18_64_data,
+    fetch_population_data,
+    fetch_unemployed_18_64_data,
 )
 
 
@@ -67,8 +67,8 @@ def main() -> None:
     @st.cache_data(ttl=3600)
     def load_data():
         pop = fetch_population_data()
-        emp = fetch_employment_data()
-        unemp = fetch_unemployment_data()
+        emp = fetch_employed_18_64_data()
+        unemp = fetch_unemployed_18_64_data()
         dep = fetch_dependency_ratio_data()
         return pop, emp, unemp, dep
 
@@ -126,12 +126,24 @@ def main() -> None:
 
     rows = []
     for muni in selected_muni:
+        employed_18_64 = emp_map.get(muni)
+        unemployed_18_64 = unemp_map.get(muni)
+        labor_force = None
+        unemployment_rate = None
+
+        if employed_18_64 is not None and unemployed_18_64 is not None:
+            labor_force = employed_18_64 + unemployed_18_64
+            if labor_force > 0:
+                unemployment_rate = (unemployed_18_64 / labor_force) * 100.0
+
         rows.append(
             {
                 "Kunta": muni,
                 "Väestö": int(filtered_pop[filtered_pop["municipality"] == muni]["value"].sum()),
-                "Työllisyysaste %": emp_map.get(muni),
-                "Työttömyysaste %": unemp_map.get(muni),
+                "Työlliset 18–64": employed_18_64,
+                "Työttömät 18–64": unemployed_18_64,
+                "Työvoima 18–64": labor_force,
+                "Työttömyysaste %": unemployment_rate,
                 "Väestöllinen huoltosuhde": dep_map.get(muni),
             }
         )
@@ -140,9 +152,9 @@ def main() -> None:
 
     year_notes = []
     if emp_year and emp_year != selected_year:
-        year_notes.append(f"Työllisyysaste: {emp_year}")
+        year_notes.append(f"Työlliset 18–64: {emp_year}")
     if unemp_year and unemp_year != selected_year:
-        year_notes.append(f"Työttömyysaste: {unemp_year}")
+        year_notes.append(f"Työttömät 18–64: {unemp_year}")
     if dep_year and dep_year != selected_year:
         year_notes.append(f"Huoltosuhde: {dep_year}")
     if year_notes:
