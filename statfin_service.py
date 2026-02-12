@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+import re
+import unicodedata
 
 import requests
 
@@ -26,6 +28,7 @@ MUNICIPALITY_COLORS = {
 @dataclass
 class SeriesConfig:
     label_keyword: str
+    preferred_labels: tuple[str, ...] = ()
 
 
 def _get_coords(index: int, sizes: list[int]) -> list[int]:
@@ -46,6 +49,47 @@ def _post_jsonstat(url: str, query: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
+def _normalize_label(value: str) -> str:
+    base = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", " ", base.lower()).strip()
+
+
+def _pick_tiedot_index(data: dict[str, Any], dim_name: str, config: SeriesConfig) -> int | None:
+    keys = list(data["dimension"][dim_name]["category"]["index"].keys())
+    labels = data["dimension"][dim_name]["category"]["label"]
+
+    preferred_norm = [_normalize_label(label) for label in config.preferred_labels]
+    keyword_norm = _normalize_label(config.label_keyword)
+
+    contains_candidates: list[tuple[int, str]] = []
+
+    for key in keys:
+        label = labels[key]
+        label_norm = _normalize_label(label)
+
+        if label_norm in preferred_norm:
+            return data["dimension"][dim_name]["category"]["index"][key]
+
+        if keyword_norm and keyword_norm in label_norm:
+            score = 0
+            if "%" in label:
+                score += 1
+            if "," in label:
+                score += 1
+            if "ika" in label_norm or "vuotia" in label_norm:
+                score -= 1
+            contains_candidates.append((score, key))
+
+
+    if contains_candidates:
+        best_key = sorted(contains_candidates, key=lambda x: x[0], reverse=True)[0][1]
+        return data["dimension"][dim_name]["category"]["index"][best_key]
+
+    return None
+
+
+
+
 def _extract_series(data: dict[str, Any], area_dim: str, year_dim: str, config: SeriesConfig):
     dim_ids: list[str] = data["id"]
     sizes: list[int] = data["size"]
@@ -56,14 +100,7 @@ def _extract_series(data: dict[str, Any], area_dim: str, year_dim: str, config: 
     year_keys = list(data["dimension"][year_dim]["category"]["index"].keys())
 
     tiedot_dim = next((d for d in dim_ids if "tiedot" in d.lower()), None)
-    valid_tiedot_idx = None
-    if tiedot_dim:
-        tiedot_keys = list(data["dimension"][tiedot_dim]["category"]["index"].keys())
-        tiedot_labels = data["dimension"][tiedot_dim]["category"]["label"]
-        for key in tiedot_keys:
-            if config.label_keyword.lower() in tiedot_labels[key].lower():
-                valid_tiedot_idx = data["dimension"][tiedot_dim]["category"]["index"][key]
-                break
+    valid_tiedot_idx = _pick_tiedot_index(data, tiedot_dim, config) if tiedot_dim else None
 
     rows: list[dict[str, Any]] = []
     for i, value in enumerate(values):
@@ -116,18 +153,33 @@ def fetch_population_data():
 
 
 def fetch_employment_data():
-    return _fetch_key_figures_series("työllisyysaste")
+    return _fetch_key_figures_series(
+        SeriesConfig(
+            label_keyword="työllisyysaste",
+            preferred_labels=("Työllisyysaste, %",),
+        )
+    )
 
 
 def fetch_unemployment_data():
-    return _fetch_key_figures_series("työttömyysaste")
+    return _fetch_key_figures_series(
+        SeriesConfig(
+            label_keyword="työttömyysaste",
+            preferred_labels=("Työttömyysaste, %",),
+        )
+    )
 
 
 def fetch_dependency_ratio_data():
-    return _fetch_key_figures_series("Väestöllinen huoltosuhde")
+    return _fetch_key_figures_series(
+        SeriesConfig(
+            label_keyword="Väestöllinen huoltosuhde",
+            preferred_labels=("Väestöllinen huoltosuhde",),
+        )
+    )
 
 
-def _fetch_key_figures_series(keyword: str):
+def _fetch_key_figures_series(config: SeriesConfig):
     url = "https://pxdata.stat.fi/PxWeb/api/v1/fi/Kuntien_avainluvut/2025/kuntien_avainluvut_2025_aikasarja.px"
     query = {
         "query": [
@@ -142,5 +194,5 @@ def _fetch_key_figures_series(keyword: str):
     if not data:
         return _rows_to_frame([])
 
-    rows = _extract_series(data, "Alue", "Vuosi", SeriesConfig(label_keyword=keyword))
+    rows = _extract_series(data, "Alue", "Vuosi", config)
     return _rows_to_frame(rows)
